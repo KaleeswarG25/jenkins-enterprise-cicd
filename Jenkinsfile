@@ -1,4 +1,4 @@
-﻿pipeline {
+pipeline {
     agent any
 
     options {
@@ -11,7 +11,6 @@
 
     environment {
         AWS_DEFAULT_REGION = 'ap-south-1'
-        AWS_REGION = 'ap-south-1'
         ECR_REPOSITORY_NAME = 'cloudcart-dev-api'
         EKS_CLUSTER_NAME = 'cloudcart-dev-eks'
         IMAGE_NAME = 'cloudcart-api'
@@ -26,7 +25,7 @@
                         script: 'git rev-parse HEAD',
                         returnStdout: true
                     ).trim()
-                    echo "Building immutable image tag: ${env.IMAGE_TAG}"
+                    echo "Image tag: ${env.IMAGE_TAG}"
                 }
             }
         }
@@ -35,7 +34,6 @@
             steps {
                 sh '''
                     set -eu
-                    python3 --version
                     python3 -m venv .venv
                     .venv/bin/python -m pip install --upgrade pip
                     .venv/bin/python -m pip install -r requirements-dev.txt
@@ -44,12 +42,13 @@
             }
             post {
                 always {
-                    junit testResults: 'pytest-results.xml', allowEmptyResults: true
+                    junit testResults: 'pytest-results.xml',
+                          allowEmptyResults: true
                 }
             }
         }
 
-        stage('Verify AWS Identity') {
+        stage('Verify AWS and ECR') {
             steps {
                 sh '''
                     set -eu
@@ -97,16 +96,25 @@
 
                 sh '''
                     set -eu
-                    aws ecr get-login-password \
-                      --region "$AWS_DEFAULT_REGION" |
-                      docker login \
-                        --username AWS \
-                        --password-stdin "$ECR_REPOSITORY_URI"
 
-                    docker tag "${IMAGE_NAME}:${IMAGE_TAG}" \
-                      "${ECR_REPOSITORY_URI}:${IMAGE_TAG}"
+                    if aws ecr describe-images \
+                      --region "$AWS_DEFAULT_REGION" \
+                      --repository-name "$ECR_REPOSITORY_NAME" \
+                      --image-ids "imageTag=${IMAGE_TAG}" \
+                      >/dev/null 2>&1; then
+                        echo "Immutable image tag already exists; reusing it."
+                    else
+                        aws ecr get-login-password \
+                          --region "$AWS_DEFAULT_REGION" |
+                          docker login \
+                            --username AWS \
+                            --password-stdin "$ECR_REPOSITORY_URI"
 
-                    docker push "${ECR_REPOSITORY_URI}:${IMAGE_TAG}"
+                        docker tag "${IMAGE_NAME}:${IMAGE_TAG}" \
+                          "${ECR_REPOSITORY_URI}:${IMAGE_TAG}"
+
+                        docker push "${ECR_REPOSITORY_URI}:${IMAGE_TAG}"
+                    fi
                 '''
             }
         }
@@ -123,7 +131,6 @@
                 sh '''
                     set -eu
                     : "${ECR_REPOSITORY_URI:?ECR repository URI missing}"
-
                     chmod +x scripts/deploy-to-eks.sh
                     ./scripts/deploy-to-eks.sh
                 '''
