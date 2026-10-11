@@ -1,22 +1,36 @@
-﻿from flask import Flask, jsonify
+﻿import os
+from flask import Flask, jsonify
 
 app = Flask(__name__)
+VERSION = os.getenv("APP_VERSION", "1.0.0")
 
 @app.get("/")
-def home():
+def index():
     return jsonify({
-        "application": "jenkins-enterprise-cicd",
-        "status": "running",
-        "message": "Jenkins CI/CD demo application"
+        "application": "CloudCart",
+        "description": "Cloud-native commerce API",
+        "version": VERSION,
+        "status": "running"
     })
 
 @app.get("/health")
 def health():
     return jsonify({"status": "healthy"}), 200
 
+@app.get("/ready")
+def ready():
+    return jsonify({"status": "ready"}), 200
+
 @app.get("/version")
 def version():
-    return jsonify({"version": "1.0.0"}), 200
+    return jsonify({"version": VERSION}), 200
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000)
+@app.get("/api/v1/products")
+def products():
+    return jsonify({
+        "items": [
+            {"id": "SKU-1001", "name": "CloudCart Starter", "price": 499},
+            {"id": "SKU-1002", "name": "CloudCart Pro", "price": 999}
+        ],
+        "count": 2
+    }), 200

@@ -1,8 +1,8 @@
 ﻿FROM python:3.12-slim AS builder
 
 ENV VIRTUAL_ENV=/opt/venv
-RUN python -m venv "$VIRTUAL_ENV"
-ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+RUN python -m venv "${VIRTUAL_ENV}"
+ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
 
 WORKDIR /build
 COPY app/requirements.txt .
@@ -15,7 +15,8 @@ ENV VIRTUAL_ENV=/opt/venv \
     PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PORT=8000
+    PORT=8000 \
+    APP_VERSION=1.0.0
 
 RUN groupadd --gid 10001 appuser \
     && useradd --uid 10001 --gid appuser --no-create-home appuser

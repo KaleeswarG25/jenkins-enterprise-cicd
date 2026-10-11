@@ -1,24 +1,26 @@
-﻿# Python
-__pycache__/
+﻿__pycache__/
 *.py[cod]
 .venv/
 venv/
 .pytest_cache/
 .coverage
 htmlcov/
-
-# Secrets and environment files
 .env
 .env.*
 !.env.example
 *.pem
 *.key
-
-# IDE and OS
+*.tfvars
+!terraform/terraform.tfvars.example
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
-
-# Generated output
-pytest-results.xml

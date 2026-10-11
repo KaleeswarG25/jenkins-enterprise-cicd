@@ -1,24 +1,25 @@
-﻿# Jenkins Enterprise CI/CD
+﻿# CloudCart — Enterprise AWS DevOps CI/CD
 
-A portfolio project demonstrating a Jenkins Declarative Pipeline for a Python Flask application packaged as a Docker container.
+A portfolio project implementing an automated delivery pipeline for a containerized Python API using GitHub, Jenkins, Docker, Amazon ECR, Amazon EKS, Terraform, and Kubernetes.
 
-## Pipeline stages
+![CloudCart AWS CI/CD architecture](docs/architecture.svg)
 
-1. Checkout source from Git.
-2. Create an isolated Python environment and install development dependencies.
-3. Run pytest and publish JUnit test results.
-4. Build a multi-stage Docker image.
-5. Start a temporary container and check its health and version endpoints.
-6. Clean up the temporary container and report the pipeline result.
+## Architecture
+
+**GitHub push → Jenkins → Unit tests → Docker build → Amazon ECR → Amazon EKS rollout**
+
+Terraform provisions the AWS foundation: VPC networking, public/private subnets, ECR, EKS, and managed worker nodes. Jenkins builds an image tagged with the source Git commit SHA, pushes it to ECR, and updates the EKS Deployment.
 
 ## Technology
 
-- Jenkins Declarative Pipeline
-- Python and Flask
-- pytest and JUnit XML reports
-- Docker multi-stage build
-- Gunicorn
 - Git and GitHub
+- Jenkins Declarative Pipeline
+- Python, Flask, pytest
+- Docker multi-stage build
+- Amazon ECR
+- Amazon EKS and Kubernetes
+- Terraform
+- AWS CLI and kubectl
 
 ## Repository structure
 
@@ -29,30 +30,78 @@ A portfolio project demonstrating a Jenkins Declarative Pipeline for a Python Fl
 │   └── requirements.txt
 ├── tests/
 │   └── test_app.py
-├── .dockerignore
-├── .gitignore
+├── terraform/
+│   ├── versions.tf
+│   ├── variables.tf
+│   ├── main.tf
+│   ├── outputs.tf
+│   └── terraform.tfvars.example
+├── k8s/
+│   ├── deployment.yaml
+│   └── service.yaml
+├── scripts/
+│   └── deploy-to-eks.sh
+├── docs/
+│   └── architecture.svg
 ├── Dockerfile
 ├── Jenkinsfile
-├── README.md
 └── requirements-dev.txt
 ```
 
-## HTTP endpoints
+## Application endpoints
 
 | Endpoint | Purpose |
 |---|---|
 | `/` | Application information |
-| `/health` | Health status |
+| `/health` | Liveness check |
+| `/ready` | Readiness check |
 | `/version` | Application version |
+| `/api/v1/products` | Sample product data |
 
-## Jenkins agent prerequisites
+## Infrastructure naming
 
-The Jenkins agent must have Git, Python 3 with venv support, Docker Engine with permission to use it, and curl installed. The Jenkins installation needs the Pipeline and JUnit plugins. Configure a Pipeline job to use this repository and its `Jenkinsfile`.
+Default region: `ap-south-1`
 
-## Scope
+With the default Terraform values:
+- ECR repository: `cloudcart-dev-api`
+- EKS cluster: `cloudcart-dev-eks`
+- Kubernetes namespace: `cloudcart`
 
-This project demonstrates CI, automated tests, container image builds, and container smoke tests. It does not push images to a registry or deploy to Kubernetes or AWS.
+Change these values consistently if you change the Terraform naming configuration.
 
-## Status
+## Pipeline stages
 
-This is a production-style learning template. The pipeline has not been executed or verified in this repository as part of its creation. Validate it in a suitably configured Jenkins environment before relying on it for production workloads.
+1. Checkout the source.
+2. Install Python dependencies and run pytest.
+3. Verify the AWS identity and ECR repository.
+4. Build the Docker image using the Git commit SHA as its tag.
+5. On `main`, authenticate to ECR and push the image.
+6. On `main`, configure kubectl, update the EKS Deployment, and wait for rollout completion.
+7. Fail the pipeline when a required command fails.
+
+## AWS setup prerequisites
+
+Before executing Terraform or enabling deployment, configure:
+
+- An AWS account and an IAM identity allowed to provision the required VPC, ECR, EKS, and IAM resources.
+- Terraform and the AWS provider/module versions declared in the configuration.
+- A supported EKS Kubernetes version for the chosen region.
+- A Jenkins agent with Git, Python 3 with venv support, Docker Engine, AWS CLI, kubectl, and network access to AWS APIs.
+- An AWS IAM role for the Jenkins agent. Prefer an EC2 instance profile or another short-lived credential mechanism instead of static AWS keys.
+- ECR push permissions for the Jenkins role.
+- EKS access for the Jenkins role. Set `jenkins_role_arn` in Terraform and apply the access entry before deploying. The example grants edit access in the `cloudcart` namespace; review permissions against your requirements.
+- A Jenkins job configured to build this repository's `Jenkinsfile`, with the `main` branch available to the job.
+- An EKS cluster and the ECR repository created by Terraform before the first deployment.
+
+## Security and cost notes
+
+- The sample Terraform enables public EKS API endpoint access from `0.0.0.0/0` to make the template easier to adapt. Restrict this to trusted IP ranges before deploying.
+- A single NAT gateway is used as a cost-conscious development default; it is not a highly available production networking design.
+- EKS worker nodes and NAT gateways incur AWS charges. Review the Terraform plan and cost estimate before applying.
+- The sample does not create an external ingress controller or public load balancer. The Kubernetes Service is internal (`ClusterIP`).
+- Image scanning on push is enabled at the ECR repository level.
+- No AWS access keys, kubeconfig files, Terraform state, or secrets should be committed.
+
+## Important scope
+
+This repository contains the project implementation template and configuration. Creating files and pushing this repository to GitHub does not provision AWS infrastructure or prove that a deployment has succeeded. Execute and validate the infrastructure and pipeline in an appropriately configured AWS/Jenkins environment before describing a deployment as completed.

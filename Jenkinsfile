@@ -5,20 +5,29 @@
         timestamps()
         disableConcurrentBuilds()
         skipDefaultCheckout(true)
-        timeout(time: 15, unit: 'MINUTES')
-        buildDiscarder(logRotator(numToKeepStr: '20'))
+        timeout(time: 40, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '30'))
     }
 
     environment {
-        IMAGE_NAME = 'jenkins-enterprise-cicd'
-        IMAGE_TAG = "build-${BUILD_NUMBER}"
+        AWS_DEFAULT_REGION = 'ap-south-1'
+        AWS_REGION = 'ap-south-1'
+        ECR_REPOSITORY_NAME = 'cloudcart-dev-api'
+        EKS_CLUSTER_NAME = 'cloudcart-dev-eks'
+        IMAGE_NAME = 'cloudcart-api'
     }
 
     stages {
         stage('Checkout') {
             steps {
                 checkout scm
-                sh 'git --version'
+                script {
+                    env.IMAGE_TAG = sh(
+                        script: 'git rev-parse HEAD',
+                        returnStdout: true
+                    ).trim()
+                    echo "Building immutable image tag: ${env.IMAGE_TAG}"
+                }
             }
         }
 
@@ -40,49 +49,83 @@
             }
         }
 
+        stage('Verify AWS Identity') {
+            steps {
+                sh '''
+                    set -eu
+                    aws --version
+                    aws sts get-caller-identity
+                    aws ecr describe-repositories \
+                      --region "$AWS_DEFAULT_REGION" \
+                      --repository-names "$ECR_REPOSITORY_NAME"
+                '''
+            }
+        }
+
         stage('Build Docker Image') {
             steps {
                 sh '''
                     set -eu
                     docker build --pull \
-                      --label "org.opencontainers.image.revision=${GIT_COMMIT}" \
+                      --label "org.opencontainers.image.revision=${IMAGE_TAG}" \
                       --tag "${IMAGE_NAME}:${IMAGE_TAG}" .
                 '''
             }
         }
 
-        stage('Container Smoke Test') {
+        stage('Push Image to ECR') {
+            when {
+                expression {
+                    env.BRANCH_NAME == 'main' ||
+                    env.GIT_BRANCH == 'origin/main' ||
+                    env.GIT_BRANCH == 'main'
+                }
+            }
+            steps {
+                script {
+                    env.ECR_REPOSITORY_URI = sh(
+                        script: '''
+                            aws ecr describe-repositories \
+                              --region "$AWS_DEFAULT_REGION" \
+                              --repository-names "$ECR_REPOSITORY_NAME" \
+                              --query 'repositories[0].repositoryUri' \
+                              --output text
+                        ''',
+                        returnStdout: true
+                    ).trim()
+                }
+
+                sh '''
+                    set -eu
+                    aws ecr get-login-password \
+                      --region "$AWS_DEFAULT_REGION" |
+                      docker login \
+                        --username AWS \
+                        --password-stdin "$ECR_REPOSITORY_URI"
+
+                    docker tag "${IMAGE_NAME}:${IMAGE_TAG}" \
+                      "${ECR_REPOSITORY_URI}:${IMAGE_TAG}"
+
+                    docker push "${ECR_REPOSITORY_URI}:${IMAGE_TAG}"
+                '''
+            }
+        }
+
+        stage('Deploy to EKS') {
+            when {
+                expression {
+                    env.BRANCH_NAME == 'main' ||
+                    env.GIT_BRANCH == 'origin/main' ||
+                    env.GIT_BRANCH == 'main'
+                }
+            }
             steps {
                 sh '''
                     set -eu
+                    : "${ECR_REPOSITORY_URI:?ECR repository URI missing}"
 
-                    CONTAINER_NAME="jenkins-ci-smoke-${BUILD_NUMBER}"
-                    PORT=$((18000 + BUILD_NUMBER % 1000))
-
-                    cleanup() {
-                      docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
-                    }
-                    trap cleanup EXIT
-
-                    docker run --detach \
-                      --name "$CONTAINER_NAME" \
-                      --publish "127.0.0.1:${PORT}:8000" \
-                      "${IMAGE_NAME}:${IMAGE_TAG}"
-
-                    ATTEMPT=0
-                    until curl --fail --silent "http://127.0.0.1:${PORT}/health"; do
-                      ATTEMPT=$((ATTEMPT + 1))
-                      if [ "$ATTEMPT" -ge 20 ]; then
-                        echo "Container health endpoint did not become ready."
-                        docker logs "$CONTAINER_NAME" || true
-                        exit 1
-                      fi
-                      sleep 2
-                    done
-
-                    echo
-                    curl --fail --silent "http://127.0.0.1:${PORT}/version"
-                    echo
+                    chmod +x scripts/deploy-to-eks.sh
+                    ./scripts/deploy-to-eks.sh
                 '''
             }
         }
@@ -90,13 +133,13 @@
 
     post {
         success {
-            echo 'CI pipeline completed successfully.'
+            echo 'CloudCart pipeline completed successfully.'
         }
         failure {
-            echo 'CI pipeline failed. Review the failed stage logs.'
+            echo 'Pipeline failed. Review the failed stage and its logs.'
         }
         always {
-            echo 'Pipeline execution finished.'
+            echo 'Jenkins pipeline execution finished.'
         }
     }
 }

@@ -1,0 +1,12 @@
+﻿aws_region          = "ap-south-1"
+project_name        = "cloudcart"
+environment         = "dev"
+vpc_cidr            = "10.20.0.0/16"
+cluster_version     = "1.33"
+node_instance_types = ["t3.medium"]
+desired_nodes       = 2
+min_nodes           = 1
+max_nodes           = 3
+
+# Set this to the IAM role ARN used by your Jenkins agent.
+# jenkins_role_arn = "arn:aws:iam::123456789012:role/jenkins-deploy-role"

@@ -8,6 +8,6 @@ __pycache__
 .coverage
 .env
 .env.*
-!.env.example
 tests
-docs/screenshots
+terraform/.terraform
+terraform/*.tfstate*
